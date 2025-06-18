@@ -10,14 +10,12 @@
 
 set -u
 
-SCRIPT_VERSION="2.3"
+SCRIPT_VERSION="2.2"
 DEBUG_MODE=0
 LOG_FILE="/var/log/backup_vms.log"
 HOST_NODE=$(hostname)
+PRUNE_VERSIONS=""
 
-# ─────────────────────────────
-# Logging Helpers
-# ─────────────────────────────
 function log() {
     echo "$1"
     echo "$1" >> "$LOG_FILE"
@@ -29,12 +27,13 @@ function error_exit {
 }
 
 function usage {
-    echo "Usage: $0 -n <vm_names> -t <storage_target> [-d|--debug]"
+    echo "Usage: $0 -n <vm_names> -t <storage_target> [-p <keep_last>] [-d|--debug]"
     echo ""
-    echo "  -n, --name      Comma-separated list of VM names to back up"
-    echo "  -t, --target    Backup storage target (e.g. 'nfs-backup')"
-    echo "  -d, --debug     Enable debug output (show executed commands)"
-    echo "  -h, --help      Show this help message"
+    echo "  -n, --name              Comma-separated list of VM names to back up"
+    echo "  -t, --target            Backup storage target (e.g. 'nfs-backup')"
+    echo "  -p, --prune_versions    Keep only the last X backups per VM"
+    echo "  -d, --debug             Enable debug output (show executed commands)"
+    echo "  -h, --help              Show this help message"
     exit 1
 }
 
@@ -46,9 +45,6 @@ function run_cmd() {
     return "${PIPESTATUS[0]}"
 }
 
-# ─────────────────────────────
-# Startup Banner
-# ─────────────────────────────
 log "──────────────────────────────────────────────"
 log "  Proxmox VM Backup Script (via vzdump + ssh/local)"
 log "  Version: $SCRIPT_VERSION"
@@ -56,10 +52,7 @@ log "  Copyright (c) 2025 Christoph Linden"
 log "  Started: $(date)"
 log "──────────────────────────────────────────────"
 
-# ─────────────────────────────
-# Parse Arguments
-# ─────────────────────────────
-PARSED_ARGS=$(getopt -o n:t:dh --long name:,target:,debug,help -- "$@")
+PARSED_ARGS=$(getopt -o n:t:dp:h --long name:,target:,debug,prune_versions:,help -- "$@")
 if [[ $? -ne 0 ]]; then
     usage
 fi
@@ -82,6 +75,10 @@ while true; do
             DEBUG_MODE=1
             shift
             ;;
+        -p|--prune_versions)
+            PRUNE_VERSIONS="$2"
+            shift 2
+            ;;
         -h|--help)
             usage
             ;;
@@ -99,9 +96,6 @@ if [[ -z "$VM_NAMES_RAW" || -z "$STORAGE_TARGET" ]]; then
     usage
 fi
 
-# ─────────────────────────────
-# Parse VM Names
-# ─────────────────────────────
 log "[INFO] Parsing input VM names..."
 IFS=',' read -ra VM_NAMES <<< "$VM_NAMES_RAW"
 if [[ ${#VM_NAMES[@]} -eq 0 ]]; then
@@ -113,15 +107,9 @@ for NAME in "${VM_NAMES[@]}"; do
     log "  - $NAME"
 done
 
-# ─────────────────────────────
-# Fetch Cluster VM Info
-# ─────────────────────────────
 log "[INFO] Querying cluster VM info..."
 VM_INFO_JSON=$(pvesh get /cluster/resources --type vm --output-format json) || error_exit "Failed to retrieve VM info."
 
-# ─────────────────────────────
-# Group VMs by Node
-# ─────────────────────────────
 declare -A NODE_TO_VMIDS
 for NAME in "${VM_NAMES[@]}"; do
     VM_RECORD=$(echo "$VM_INFO_JSON" | jq -c --arg name "$NAME" '.[] | select(.name == $name)')
@@ -140,23 +128,26 @@ for NAME in "${VM_NAMES[@]}"; do
     NODE_TO_VMIDS["$NODE"]+="$VMID "
 done
 
-# ─────────────────────────────
-# Execute vzdump per Node
-# ─────────────────────────────
 for NODE in "${!NODE_TO_VMIDS[@]}"; do
     VMID_LIST="${NODE_TO_VMIDS[$NODE]}"
     log "[INFO] Starting vzdump for node '$NODE' with VMIDs: $VMID_LIST"
 
-    CMD="vzdump $VMID_LIST --storage '$STORAGE_TARGET' --mode snapshot --compress 0 --remove 0 --node '$NODE'"
+    PRUNE_OPT=""
+    if [[ -n "$PRUNE_VERSIONS" ]]; then
+        PRUNE_OPT="--prune-backups keep-last=$PRUNE_VERSIONS"
+        log "[INFO] Pruning enabled: keep-last=$PRUNE_VERSIONS"
+    fi
+
+    CMD="vzdump $VMID_LIST --storage '$STORAGE_TARGET' --mode snapshot --compress 0 --remove 0 --node '$NODE' $PRUNE_OPT"
 
     if [[ "$NODE" == "$HOST_NODE" ]]; then
         run_cmd "$CMD"
         STATUS=$?
     else
         if [[ $DEBUG_MODE -eq 1 ]]; then
-            log "[DEBUG] ssh root@$NODE \"$CMD\""
+            log "[DEBUG] ssh root@$NODE "$CMD""
         fi
-        run_cmd "ssh root@$NODE \"$CMD\""
+        run_cmd "ssh root@$NODE "$CMD""
         STATUS=$?
     fi
 
