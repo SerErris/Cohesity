@@ -1,8 +1,16 @@
 #!/bin/bash
+#
+# backup_vms.sh – Proxmox VM Backup Script
+#
+# Copyright (c) 2025 Christoph Linden
+# License: MIT
+#
+# This script is provided as-is, without warranty of any kind.
+# Use at your own risk.
 
 set -u
 
-SCRIPT_VERSION="2.2"
+SCRIPT_VERSION="2.3"
 DEBUG_MODE=0
 LOG_FILE="/var/log/backup_vms.log"
 HOST_NODE=$(hostname)
@@ -44,6 +52,7 @@ function run_cmd() {
 log "──────────────────────────────────────────────"
 log "  Proxmox VM Backup Script (via vzdump + ssh/local)"
 log "  Version: $SCRIPT_VERSION"
+log "  Copyright (c) 2025 Christoph Linden"
 log "  Started: $(date)"
 log "──────────────────────────────────────────────"
 
