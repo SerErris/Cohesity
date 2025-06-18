@@ -155,6 +155,7 @@ for NODE in "${!NODE_TO_VMIDS[@]}"; do
         log "[INFO] Backup on node '$NODE' completed successfully."
     else
         log "[ERROR] Backup on node '$NODE' failed with exit code $STATUS."
+        exit $STATUS
     fi
 done
 
