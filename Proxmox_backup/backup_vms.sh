@@ -10,7 +10,7 @@
 
 set -u
 
-SCRIPT_VERSION="2.2.1"
+SCRIPT_VERSION="2.2.2"
 DEBUG_MODE=0
 LOG_FILE="/var/log/backup_vms.log"
 HOST_NODE=$(hostname)
