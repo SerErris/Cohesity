@@ -10,14 +10,14 @@
 
 set -u
 
-SCRIPT_VERSION="2.2"
+SCRIPT_VERSION="2.2.1"
 DEBUG_MODE=0
 LOG_FILE="/var/log/backup_vms.log"
 HOST_NODE=$(hostname)
 PRUNE_VERSIONS=""
 
 function log() {
-    echo "$1"
+    printf '%s\n' "$1"
     echo "$1" >> "$LOG_FILE"
 }
 
@@ -134,11 +134,11 @@ for NODE in "${!NODE_TO_VMIDS[@]}"; do
 
     PRUNE_OPT=""
     if [[ -n "$PRUNE_VERSIONS" ]]; then
-        PRUNE_OPT="--prune-backups keep-last=$PRUNE_VERSIONS"
-        log "[INFO] Pruning enabled: keep-last=$PRUNE_VERSIONS"
+        PRUNE_OPT="--prune-backups keep-last=$PRUNE_VERSIONS --remove 1"
+        log "[INFO] Pruning enabled: keep-last=$PRUNE_VERSIONS --remove 1"
     fi
 
-    CMD="vzdump $VMID_LIST --storage '$STORAGE_TARGET' --mode snapshot --compress 0 --remove 0 --node '$NODE' $PRUNE_OPT"
+    CMD="vzdump $VMID_LIST --storage '$STORAGE_TARGET' --mode snapshot --compress 0 --node '$NODE' $PRUNE_OPT"
 
     if [[ "$NODE" == "$HOST_NODE" ]]; then
         run_cmd "$CMD"
