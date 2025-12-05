@@ -42,11 +42,16 @@ The following tools must be installed on the system:
 
 The script relies on a password-less configuration for the root (or backup) user. It is recommended to use a .my.cnf file in the home directory of the user executing the script (or /root/.my.cnf if using sudo for mysql commands).
 
-Example \~/.my.cnf:
+Example /root/.my.cnf:
 
-\[client\]  
+```bash
+[client]  
 user=root  
-password=your\_secure\_password
+password=your_secure_password
+```
+
+**Security Note:** always ensure that this file has only read/write permissions for root user (500).
+
 
 ### **3\. Sudo Configuration (Minimum Privileges)**
 
@@ -56,19 +61,26 @@ To allow the script to run without a password prompt, add the following configur
 
 **Replace your\_backup\_user with the actual username running the script.**
 
-\# Alias for the backup user  
-User\_Alias BACKUP\_USER \= your\_backup\_user
+```bash
+# Alias for the backup user  
+User_Alias BACKUP_USER = your_backup_user
 
-\# Command Aliases  
-\# File System Operations (Includes flock for locking and timeout for safe mounts)  
-Cmnd\_Alias FS\_OPS \= /usr/bin/mkdir, /usr/bin/rm, /usr/bin/cp, /usr/bin/ls, /usr/bin/cat, /usr/bin/tee, /usr/bin/touch, /usr/bin/timeout, /usr/bin/flock  
-\# Mount Operations  
-Cmnd\_Alias MOUNT\_OPS \= /usr/bin/mount, /usr/bin/umount, /usr/bin/findmnt  
-\# Database Operations (Includes mysqladmin for ping checks)  
-Cmnd\_Alias DB\_OPS \= /usr/bin/mariadb-backup, /usr/bin/mysql, /usr/bin/mysqlbinlog, /usr/bin/mysqladmin, /usr/bin/find
+# Command Aliases  
+# File System Operations (Includes flock for locking and timeout for safe mounts)  
+Cmnd_Alias FS_OPS = /usr/bin/mkdir, /usr/bin/rm, /usr/bin/cp, /usr/bin/ls, /usr/bin/cat, /usr/bin/tee, /usr/bin/touch, /usr/bin/timeout, /usr/bin/flock  
+# Mount Operations  
+Cmnd_Alias MOUNT_OPS = /usr/bin/mount, /usr/bin/umount, /usr/bin/findmnt  
+# Database Operations (Includes mysqladmin for ping checks)  
+Cmnd_Alias DB_OPS = /usr/bin/mariadb-backup, /usr/bin/mysql, /usr/bin/mysqlbinlog, /usr/bin/mysqladmin, /usr/bin/find
 
-\# Grant privileges without password (including the harmless 'true' command for pre-checks)  
+# Grant privileges without password (including the harmless 'true' command for pre-checks)  
 BACKUP\_USER ALL=(root) NOPASSWD: FS\_OPS, MOUNT\_OPS, DB\_OPS, /usr/bin/true
+```
+
+**Here is the list of all used commands:**
+mkdir, rm, cp, ls, cat, tee, touch, timeout, flock
+mount, umount, findmnt
+mariadb-backup, mysql, mysqlbinlog, mysqladmin, find
 
 **Security Note**: The script requires rm \-rf via sudo to prune old backups. Ensure the target\_dir variable in the script is strictly controlled.
 
@@ -98,11 +110,127 @@ chmod \+x mariadb\_backup.sh
 
 1\. Full Instance Backup (Silent, Persistent Mount)  
 Backs up all databases to /mnt/sql\_backups, keeping the share mounted afterwards. Output only goes to logfile.  
+```bash
 ./mariadb\_backup.sh \-d all \-t /mnt/sql\_backups \-m full \-n 192.168.1.5:/storage
+```
 
 2\. Daily Incremental Backup with Debugging (Temporary Mount)  
 Backs up production\_db, shows output on console for debugging, removes backups older than 7 days, and unmounts the share immediately after.  
+```bash
 ./mariadb\_backup.sh \-d production\_db \-t /mnt/backup \-m inc \-n 192.168.1.5:/storage \-p 7 \-u \-v
+```
+
+## Cohesity Remote Adapter Integration for MariaDB Backup
+
+This section describes how to integrate the `mariadb_backup.sh` script with Cohesity using the Remote Adapter feature, including View setup, policy configuration, and Protection Group creation.
+
+---
+
+### **1. Create a Cohesity View**
+
+Configure a Cohesity View to store MariaDB backups. Use the following parameters as a reference:
+
+| Parameter                | Example Value                        | Description                                                                 |
+|--------------------------|--------------------------------------|-----------------------------------------------------------------------------|
+| **View Name**            | `mariadb`                            | Logical name for the backup container.                                      |
+| **Storage Domain**       | `DefaultStorageDomain`               | Storage domain where the view resides.                                      |
+| **NFS Mount Path**       | `cohesitycl.lab.local:/mariadb`      | NFS path to use as the backup target in your script.                        |
+| **Protocol Access**      | `NFS (ReadWrite)`                    | Protocol and access mode enabled for the view.                              |
+| **Subnet Whitelist**     | `192.168.0.0/24` (ReadWrite, RootSquash) | Network allowed to access the view via NFS, with root squash for security.  |
+| **Root Squash Setting**  | `uid: 65534, gid: 100`               | NFS root squash maps root to this user/group.                               |
+| **Security Mode**        | `NativeMode`                         | Security mode for access control.                                           |
+| **QoS Policy**           | `BackupTargetHigh`                   | Quality of Service policy for backup performance.                           |
+
+**Note:**  
+The `gid` specified in the root squash setting (`gid: 100`) should correspond to the group used on the MariaDB server for backup operations (commonly the `users` group or a dedicated backup group). This ensures file permissions and access control are consistent between the Cohesity View and your MariaDB server.
+
+---
+
+### **2. Configure a Cohesity Protection Policy**
+
+When creating a Cohesity Protection Policy for MariaDB backups, ensure the following settings are configured in the GUI:
+
+| Policy Section           | Example Setting                       | Description                                                                 |
+|--------------------------|---------------------------------------|-----------------------------------------------------------------------------|
+| **Policy Name**          | `MariaDB_policy`                      | Logical name for the policy.                                                |
+| **Incremental Backup**   | Every 1 day                           | Schedule regular incremental backups to capture daily changes.               |
+| **Full Backup**          | Every Friday                          | Schedule periodic full backups (e.g., weekly on Friday) for restore points.  |
+| **Full Backup Retention**| 2 weeks                               | Retain full backups for at least 2 weeks.                                   |
+| **Overall Retention**    | 2 weeks                               | Retain all backups (incremental and full) for at least 2 weeks.             |
+| **Log Backup**           | Every 4 hours                         | Schedule transaction log (binlog) backups for point-in-time recovery.        |
+| **Log Backup Retention** | 2 weeks                               | Retain log backups for at least 2 weeks.                                    |
+| **Retry Options**        | 3 retries, 5 min interval             | Configure retries for failed jobs to improve reliability.                    |
+
+---
+
+### **3. Create a Remote Adapter Protection Group**
+
+Follow these steps in the Cohesity UI to set up remote orchestration of MariaDB backups:
+
+#### **a. Select Protection Group Type**
+- Choose **Remote Adapter** as the protection group type.
+
+#### **b. Fill in Protection Group Details**
+- **Protection Group Name:**  
+  Enter a descriptive name, e.g. `mariadb`.
+
+#### **c. Specify Host Information**
+- **Linux Hostname or IP:**  
+  Enter the hostname or IP address of the MariaDB server, e.g. `mariadb.host.local`.
+- **Username:**  
+  Enter the username on the host that Cohesity will use to connect via SSH, e.g. `user123`.
+
+#### **d. Set Up SSH Permissions**
+- **Cluster SSH Public Key:**  
+  Copy the provided Cohesity Cluster SSH Public Key.
+- **On the MariaDB server:**  
+  - Log in as the specified user (`user123`).
+  - Add the Cohesity Cluster SSH Public Key to the user's `~/.ssh/authorized_keys` file.
+  - **Set correct permissions:**
+    - The `.ssh` directory should have permissions `700` (only accessible by the user).
+    - The `authorized_keys` file should have permissions `600` (read/write for the user only).
+    - Example commands:
+      ```bash
+      chmod 700 ~/.ssh
+      chmod 600 ~/.ssh/authorized_keys
+      ```
+  - This ensures secure SSH access and allows Cohesity to execute backup scripts remotely.
+
+#### **e. Select the Protection Policy**
+- Choose the policy you created earlier, e.g. `MariaDB_policy`.
+
+After selecting the policy, configure the NFS View and script information for each backup type:
+
+#### **f. NFS View Selection**
+- **NFS View:**  
+  Select the view named `mariadb` (QoS Policy: Backup Target High).
+- **Note:**  
+  The associated View must be mounted on your MariaDB server, and the backup script must write to a directory on this mounted View.
+
+#### **g. Enter script Information for Each Schedule**
+
+| Schedule Type      | Script Path                              | Parameters                                                                 |
+|--------------------|------------------------------------------|----------------------------------------------------------------------------|
+| **Incremental**    | `/home/clinden/mariadb_backup.sh`        | `-d all -t /mnt/backup -m inc -n cohesitycl.lab.local:/mariadb -u`         |
+| **Full**           | `/home/clinden/mariadb_backup.sh`        | `-d all -t /mnt/backup -m full -n cohesitycl.lab.local:/mariadb -p 10 -u`  |
+| **Log**            | `/home/clinden/mariadb_backup.sh`        | `-d all -t /mnt/backup -m log -n cohesitycl.lab.local:/mariadb -u`         |
+
+#### **h. Start Time**
+- **Time:**  
+  `08:52`
+- **Time Zone:**  
+  `Europe/Berlin`
+
+---
+
+**Summary of Steps:**
+1. Create and configure the Cohesity View with correct NFS and permission settings.
+2. Define a Protection Policy with schedules for incremental, full, and log backups.
+3. Create a Remote Adapter Protection Group, set up SSH access, and select the policy.
+4. Select the NFS View and configure script paths and parameters for all backup types in the Protection Group.
+
+**Tip:**  
+All three backup types (incremental, full, log) must be configured for complete protection and point-in-time recovery. Ensure the NFS View is mounted and accessible on the MariaDB server, and that SSH permissions are set correctly for remote execution.
 
 ## **Limitations**
 
