@@ -114,5 +114,11 @@ python3 s3-mp-download.py s3://my-bucket/data.zip data.zip --quiet --no-progress
 * **`ModuleNotFoundError: No module named 'boto3'`:**
   You likely installed boto3 for a different Python version. Run `python3 -m pip install boto3`.
 
-## License
-Open Source. Feel free to modify.
+## LICENSE & WARRANTY DISCLAIMER:
+This script is provided under the MIT License.
+
+⚠️ Disclaimer:
+
+This script is provided as-is, without any warranty of any kind.
+Use at your own risk. The author(s) are not liable for any loss, data 
+corruption, or system failure resulting from its use.
